@@ -7,6 +7,22 @@ refresh_time = 50
 
 # functions
 
+def delete_message(chat_id, message_id):
+    url = f"https://tapi.bale.ai/bot{access_token}/deleteMessage"
+    payload = {
+        'chat_id': chat_id,
+        'message_id': message_id
+    }
+
+    headers = {
+        'Content-Type': 'application/json'
+    }
+
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+
+
 def send_message(chat_id, text):
     url = f"https://tapi.bale.ai/bot{access_token}/sendMessage"
     payload = {
