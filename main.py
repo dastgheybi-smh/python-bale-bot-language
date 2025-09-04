@@ -47,12 +47,12 @@ class PyBBMCompiler:
         for line in lines:
             # ---------------- on ----------------
             if line.startswith("on"):
-                m = re.match(r'on\s+"([^"]+)"\s*:\s*(code_id_\d+)', line)
+                m = re.match(r'on\s+\((.+)\)\s*:\s*(code_id_\d+)', line)
                 if not m:
                     raise SyntaxError(f"Invalid on syntax: {line}")
                 text_value, code_id = m.groups()
                 block = self.code_blocks[code_id]
-                code = f'if text == "{text_value}":\n{indent_with_block("    ", block)}'
+                code = f'if text == {text_value}:\n{indent_with_block("    ", block)}'
                 self.insert_into_block("on_statements", code, "end")
 
             # ---------------- let ----------------
