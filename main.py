@@ -100,7 +100,7 @@ class PyBBMCompiler:
 
         return out
 
-compiler = PyBBMCompiler("template.txt")
+compiler = PyBBMCompiler("template.py")
 
 if len(sys.argv) > 1:
     filepath = sys.argv[1]
