@@ -54,6 +54,8 @@ def handler(message):
     # on_statements
     # end_on_statements
 
+# before
+# end_before
 
 if __name__ == "__main__":
     last_update_id = None
