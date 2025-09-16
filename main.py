@@ -11,10 +11,10 @@ import sys
 from pathlib import Path
 import chardet
 
-def indent_with_block(base_indent: str, code: str) -> str:
+def indent_with_block(base_indent: str, _code: str) -> str:
     return "\n".join(
         base_indent + line if line.strip() else line
-        for line in code.splitlines()
+        for line in _code.splitlines()
     )
 
 class PyBBMCompiler:
@@ -33,7 +33,7 @@ class PyBBMCompiler:
             self.counter += 1
             return key
 
-        return re.sub(r"\{([^}]*)\}", replacer, src, flags=re.S)
+        return re.sub(r"`([^`]*)`", replacer, src, flags=re.S)
 
     def insert_into_block(self, block_name: str, code: str, where: str = "end"):
         if block_name not in self.output_blocks:
@@ -45,6 +45,7 @@ class PyBBMCompiler:
         lines = [line.strip() for line in src.split(";") if line.strip()]
 
         for line in lines:
+            line.replace("\n", " ")
             # ---------------- on ----------------
             if line.startswith("on"):
                 m = re.match(r'on\s+\((.+)\)\s*:\s*(code_id_\d+)', line)
@@ -52,26 +53,61 @@ class PyBBMCompiler:
                     raise SyntaxError(f"Invalid on syntax: {line}")
                 text_value, code_id = m.groups()
                 block = self.code_blocks[code_id]
-                code = f'if text == {text_value}:\n{indent_with_block("    ", block)}'
+                el = ''
+                use_text = True
+                if text_value.startswith('!'):
+                    use_text = False
+                    text_value = text_value[1:]
+                if text_value.endswith('?'):
+                    el = 'el'
+                    text_value = text_value[:-1]
+                code = f'{el}if {'text == ' if use_text else ''}{text_value}:\n{indent_with_block("    ", block)}'
                 self.insert_into_block("on_statements", code, "end")
 
             # ---------------- let ----------------
             elif line.startswith("let"):
-                m = re.match(r'let\s+(\w+)\s*=\s*(.+)', line)
+                m = re.match(r'^let(?:\{(\w+)})?\s+(\w+)\s*=\s*(.+)$', line)
                 if not m:
                     raise SyntaxError(f"Invalid let syntax: {line}")
-                var, val = m.groups()
-                self.insert_into_block("variables", f"{var} = {val}", "end")
+                block_in ,var, val = m.groups()
+                if not block_in:
+                    block_in = "variables"
+                self.insert_into_block(block_in, f"{var} = {val}", "end")
 
             # ---------------- exec ----------------
             elif line.startswith("exec"):
-                m = re.match(r'exec\s+(code_id_\d+)\s+(\w+)(?:\s+(start|end))?', line)
+                m = re.match(r'^exec\s+(code_id_\d+)\s+(\w+)(?:\s+(start|end))?$', line)
                 if not m:
                     raise SyntaxError(f"Invalid exec syntax: {line}")
                 code_id, block_name, where = m.groups()
                 block = self.code_blocks[code_id]
                 where = where if where else "end"
                 self.insert_into_block(block_name, block, where)
+
+            # ---------------- import -------------------
+            elif line.startswith("import"):
+                m = re.match(r'^import\s+\{([^\n\r}]+)}(?:\s+from\s+\{(\w+)})?$', line)
+                if not m:
+                    raise SyntaxError(f"Invalid import syntax: {line}")
+                imported, from_ = m.groups()
+                if not from_:
+                    expr = f"import {imported}"
+                else:
+                    expr = f"from {from_} import {imported}"
+                self.insert_into_block("imports", expr)
+
+            # -------------- include_tag ----------------
+            # elif line.startswith("#include"):
+            #     m = re.match(r'^#include\s+"(.+)"$', line)
+            #     if not m:
+            #         raise SyntaxError(f"Invalid include syntax: {line}")
+            #     included_file_path = m.groups()[0]
+            #     with open(included_file_path+".bbm", "r", encoding="utf-8") as f_:
+            #         included = f_.read()
+            #
+
+
+            # ----------------- else --------------------
 
             else:
                 raise SyntaxError(f"Unknown statement: {line}")
@@ -91,7 +127,6 @@ class PyBBMCompiler:
 
             base_indent = match.group(1)
 
-            # کدها با ایندنت بلاک
             start_code = indent_with_block(base_indent, start_code) if start_code else ""
             end_code = indent_with_block(base_indent, end_code) if end_code else ""
 
