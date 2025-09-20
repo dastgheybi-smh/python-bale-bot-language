@@ -55,7 +55,7 @@ def handler(message):
     chat_id = message['chat']['id']
     message_id = message['message_id']
     text = message.get('text', '')
-    user_name = message['from'].get('first_name', no_username)
+    user_fullname = message['from'].get('first_name', no_username)
     status = CONST_STATUSES.get(chat_id)
     if status is None:
         CONST_STATUSES[chat_id] = default_status

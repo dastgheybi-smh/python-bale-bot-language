@@ -2,14 +2,16 @@
 By: Sayed Mohammad Hassan Dastgheybi
 All rights reserved.
 
-Version: 1.0
-Template Version: 1.0"""
+Version: 1.2
+Template Version: 1.2"""
 
 import os.path
+from os import listdir
 import re
 import sys
 from pathlib import Path
 import chardet
+
 
 def indent_with_block(base_indent: str, _code: str) -> str:
     return "\n".join(
@@ -17,8 +19,34 @@ def indent_with_block(base_indent: str, _code: str) -> str:
         for line in _code.splitlines()
     )
 
+
+def strip_ftab(src: str):
+    codes = src.split("\n")
+
+    return_ = False
+
+    while True:
+        for i in codes:
+            if not i.strip():
+                continue
+            if not i.startswith(" "):
+                return_ = True
+                break
+
+        if return_:
+            return "\n".join(codes)
+
+        for i in range(len(codes)):
+            if codes[i].strip():
+                codes[i] = codes[i][1:]
+
+
+
 class PyBBMCompiler:
     def __init__(self, template_path: str):
+        self.status_checker_indent = ""
+        self.status_checker = ""
+        self.status_checker_used = False
         self.template = Path(template_path).read_text(encoding="utf-8")
         self.code_blocks = {}
         self.counter = 0
@@ -27,7 +55,7 @@ class PyBBMCompiler:
     def extract_blocks(self, src: str):
 
         def replacer(match):
-            code = match.group(1).strip()
+            code = strip_ftab(match.group(1))
             key = f"code_id_{self.counter}"
             self.code_blocks[key] = code
             self.counter += 1
@@ -35,17 +63,35 @@ class PyBBMCompiler:
 
         return re.sub(r"`([^`]*)`", replacer, src, flags=re.S)
 
+    def extract_status_checker(self, src: str):
+
+        def replacer(match):
+            if self.status_checker is not None:
+                code = match.group(1).strip()
+                key = f"status_checker"
+                self.status_checker = code
+                return key
+            raise SyntaxError("Can't have more than one status checker")
+
+        return re.sub(r"\[\[\[(.*)]]]", replacer, src, flags=re.DOTALL)
+
+
+
     def insert_into_block(self, block_name: str, code: str, where: str = "end"):
         if block_name not in self.output_blocks:
             self.output_blocks[block_name] = {"start": [], "end": []}
         self.output_blocks[block_name][where].append(code)
 
-    def compile(self, src: str) -> str:
+    def compile_to_list(self, src: str, included=False):
         src = self.extract_blocks(src)
+        src = self.extract_status_checker(src)
         lines = [line.strip() for line in src.split(";") if line.strip()]
+        excluded = False
+
+        if lines[0] != "#exclude" and included:
+            raise SyntaxError(f"Included file \"{included}\" is not importable")
 
         for line in lines:
-            line.replace("\n", " ")
             # ---------------- on ----------------
             if line.startswith("on"):
                 m = re.match(r'on\s+\((.+)\)\s*:\s*(code_id_\d+)', line)
@@ -61,7 +107,7 @@ class PyBBMCompiler:
                 if text_value.endswith('?'):
                     el = 'el'
                     text_value = text_value[:-1]
-                code = f'{el}if {'text == ' if use_text else ''}{text_value}:\n{indent_with_block("    ", block)}'
+                code = f'{self.status_checker_indent}{el}if {'text == ' if use_text else ''}{text_value}:\n{indent_with_block("    " + self.status_checker_indent, block)}'
                 self.insert_into_block("on_statements", code, "end")
 
             # ---------------- let ----------------
@@ -69,7 +115,7 @@ class PyBBMCompiler:
                 m = re.match(r'^let(?:\{(\w+)})?\s+(\w+)\s*=\s*(.+)$', line)
                 if not m:
                     raise SyntaxError(f"Invalid let syntax: {line}")
-                block_in ,var, val = m.groups()
+                block_in, var, val = m.groups()
                 if not block_in:
                     block_in = "variables"
                 self.insert_into_block(block_in, f"{var} = {val}", "end")
@@ -97,20 +143,57 @@ class PyBBMCompiler:
                 self.insert_into_block("imports", expr)
 
             # -------------- include_tag ----------------
-            # elif line.startswith("#include"):
-            #     m = re.match(r'^#include\s+"(.+)"$', line)
-            #     if not m:
-            #         raise SyntaxError(f"Invalid include syntax: {line}")
-            #     included_file_path = m.groups()[0]
-            #     with open(included_file_path+".bbm", "r", encoding="utf-8") as f_:
-            #         included = f_.read()
-            #
+            elif line.startswith("#include"):
+                m = re.match(r'^#include\s+"(.+)"$', line)
+                if not m:
+                    raise SyntaxError(f"Invalid include syntax: {line}")
+                included_file_path = m.groups()[0]
+                with open(included_file_path + ".bbm", "r", encoding="utf-8") as f_:
+                    included = f_.read()
+                self.compile_to_list(included, included_file_path)
+
+            # -------------- exclude_tag -------------------
+            elif line.startswith("#exclude"):
+                excluded = True
+
+            # --------------- comment ------------------------
+            elif line.startswith("//"):
+                pass
+
+            # ------------ status_checker -----------------
+            elif line.startswith("status_checker"):
+                if excluded:
+                    raise SyntaxError(f"Excluded file can't have status checker")
+                if self.status_checker_used:
+                    raise SyntaxError("Can't have more than one status checker")
+                self.status_checker_used = True
+                data = self.status_checker
+                datas = [li.strip() for li in data.split("::") if li.strip()]
+                if not len(datas):
+                    raise SyntaxError(f"Status checker can not be empty")
+                for d in datas:
+                    m = re.match(r"\[(.*)]:(.*)", d, re.DOTALL)
+                    if not m:
+                        raise SyntaxError(f"Invalid status checker syntax: {d}")
+                    self.status_checker_indent = "    "
+                    status, codes = m.groups()
+                    self.insert_into_block("on_statements", f"if status == {status}:")
+                    self.compile_to_list(codes)
+
+                self.status_checker_indent = ""
+
 
 
             # ----------------- else --------------------
 
             else:
                 raise SyntaxError(f"Unknown statement: {line}")
+
+
+
+    def compile_to_template(self, src: str) -> str:
+
+        self.compile_to_list(src)
 
         out = self.template
 
@@ -135,7 +218,9 @@ class PyBBMCompiler:
 
         return out
 
-compiler = PyBBMCompiler("template.py")
+current_path = os.path.dirname(os.path.abspath(__file__))
+
+compiler = PyBBMCompiler(os.path.join(current_path, "template.py"))
 
 if len(sys.argv) > 1:
     filepath = sys.argv[1]
@@ -156,7 +241,7 @@ work = input("[R]un , [B]uild or [P]rint: ")
 match work.lower():
     case "r":
         os.system("py -m pip install requests")
-        exec(compiler.compile(code))
+        exec(compiler.compile_to_template(code))
     case "b":
         output_path = input("enter output path: ")
         if not os.path.isdir(output_path):
@@ -164,10 +249,10 @@ match work.lower():
             sys.exit(1)
         name = input("enter name: ")
         with open(os.path.join(output_path, f"{name}.py"), "w", encoding="utf-8") as f:
-            f.write(compiler.compile(code))
+            f.write(compiler.compile_to_template(code))
     case "p":
         print("\n========= Output ===========\n\n")
-        print(compiler.compile(code))
+        print(compiler.compile_to_template(code))
     case _:
         print("Invalid input")
         sys.exit(1)
