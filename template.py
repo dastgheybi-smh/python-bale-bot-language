@@ -28,12 +28,17 @@ def delete_message(chat_id, message_id):
 
 
 
-def send_message(chat_id, text):
+def send_message(chat_id, text, inline_keyboard=None):
     url = f"https://tapi.bale.ai/bot{access_token}/sendMessage"
     payload = {
         'chat_id': chat_id,
         'text': text
     }
+
+    if inline_keyboard:
+        payload['reply_markup'] = {
+            'inline_keyboard': inline_keyboard
+        }
 
     headers = {
         'Content-Type': 'application/json'

@@ -112,7 +112,7 @@ class PyBBMCompiler:
 
             # ---------------- let ----------------
             elif line.startswith("let"):
-                m = re.match(r'^let(?:\{(\w+)})?\s+(\w+)\s*=\s*(.+)$', line)
+                m = re.match(r'^let(?:\{(\w+)})?\s+(\w+)\s*=\s*([\s\S]+)$', line)
                 if not m:
                     raise SyntaxError(f"Invalid let syntax: {line}")
                 block_in, var, val = m.groups()
