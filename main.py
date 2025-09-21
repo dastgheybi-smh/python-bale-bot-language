@@ -171,14 +171,16 @@ class PyBBMCompiler:
                 datas = [li.strip() for li in data.split("::") if li.strip()]
                 if not len(datas):
                     raise SyntaxError(f"Status checker can not be empty")
+                el = False
                 for d in datas:
                     m = re.match(r"\[(.*)]:(.*)", d, re.DOTALL)
                     if not m:
                         raise SyntaxError(f"Invalid status checker syntax: {d}")
                     self.status_checker_indent = "    "
                     status, codes = m.groups()
-                    self.insert_into_block("on_statements", f"if status == {status}:")
+                    self.insert_into_block("on_statements", f"{'el' if el else ''}if status == {status}:")
                     self.compile_to_list(codes)
+                    el = True
 
                 self.status_checker_indent = ""
 
