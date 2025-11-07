@@ -6,7 +6,6 @@ Version: 1.2
 Template Version: 1.2"""
 
 import os.path
-from os import listdir
 import re
 import sys
 from pathlib import Path
@@ -82,7 +81,7 @@ class PyBBMCompiler:
             self.output_blocks[block_name] = {"start": [], "end": []}
         self.output_blocks[block_name][where].append(code)
 
-    def compile_to_list(self, src: str, included=False):
+    def compile_to_list(self, src: str, included=""):
         src = self.extract_blocks(src)
         src = self.extract_status_checker(src)
         lines = [line.strip() for line in src.split(";") if line.strip()]
@@ -173,18 +172,38 @@ class PyBBMCompiler:
                     raise SyntaxError(f"Status checker can not be empty")
                 el = False
                 for d in datas:
-                    m = re.match(r"\[(.*)]:(.*)", d, re.DOTALL)
+                    m = re.match(r"^\[(.+)]:(.*)", d, re.DOTALL)
+                    ui_base = False
+                    if not m:
+                        m = re.match(r"^\{(.+)}:(.*)", d, re.DOTALL)
+                        ui_base = True
                     if not m:
                         raise SyntaxError(f"Invalid status checker syntax: {d}")
                     self.status_checker_indent = "    "
                     status, codes = m.groups()
-                    self.insert_into_block("on_statements", f"{'el' if el else ''}if status == {status}:")
-                    self.compile_to_list(codes)
-                    el = True
+                    if not ui_base:
+                        self.insert_into_block("on_statements", f"{'el' if el else ''}if status == {status}:")
+                        self.compile_to_list("#exclude;"+codes, f"status_checker[{status}]")
+                        el = True
+                    else:
+                        self.insert_into_block("status_checker_redirect", f"if CONST_STATUSES[chat_id] == {status}:")
+                        self.insert_into_block("status_checker_redirect", indent_with_block("    ", codes))
 
                 self.status_checker_indent = ""
 
-
+            # ------------ series ------------------
+            elif line.startswith("series"):
+                m = re.match(r'^series\s+(\w+)$', line)
+                if not m:
+                    raise SyntaxError(f"Invalid series syntax: {line}")
+                series = m.groups()[0]
+                self.insert_into_block("variables", "CONST_" + series.upper() + " = {}")
+                self.insert_into_block("variables", f"default_{series} = \"\"")
+                self.insert_into_block("series_setter", f"CONST_{series.upper()}[chat_id] = {series}")
+                self.insert_into_block("series", f"""{series} = CONST_{series.upper()}.get(chat_id)
+if {series} is None:
+    CONST_{series.upper()}[chat_id] = default_{series}
+    {series} = default_{series}""")
 
             # ----------------- else --------------------
 
@@ -255,6 +274,15 @@ match work.lower():
     case "p":
         print("\n========= Output ===========\n\n")
         print(compiler.compile_to_template(code))
+    case "bc":
+        output_path = input("enter output path: ")
+        if not os.path.isdir(output_path):
+            print("Output path must be a directory")
+            sys.exit(1)
+        name = input("enter name: ")
+        compiler_ = PyBBMCompiler(filepath)
+        with open(os.path.join(output_path, f"{name}.py"), "w", encoding=encoding) as f:
+            f.write(compiler_.compile_to_template(code))
     case _:
         print("Invalid input")
         sys.exit(1)
